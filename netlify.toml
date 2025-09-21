@@ -1,13 +1,14 @@
 [build]
   base = "client"
   publish = "build"
-  command = "npm ci && npm run build"
+  command = "npm ci --legacy-peer-deps && npm run build"
 
 [build.environment]
   NODE_VERSION = "18"
   NPM_VERSION = "9"
   CI = "false"
   NODE_OPTIONS = "--max_old_space_size=4096"
+  SKIP_PREFLIGHT_CHECK = "true"
 
 [[redirects]]
   from = "/*"
