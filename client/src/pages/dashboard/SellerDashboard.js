@@ -298,7 +298,7 @@ const SellerDashboard = () => {
                       </div>
                       <div className="flex items-center mt-1">
                         <StarIcon className="h-4 w-4 text-yellow-400 mr-1" />
-                        <span className="text-sm text-gray-600">{p.rating}</span>
+                        <span className="text-sm text-gray-600">{typeof p.rating === 'object' ? p.rating?.average || 0 : p.rating || 0}</span>
                       </div>
                     </div>
                     <div className="flex flex-col items-end">

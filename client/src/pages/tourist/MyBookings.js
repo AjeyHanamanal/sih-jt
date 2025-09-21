@@ -102,7 +102,7 @@ const MyBookings = () => {
                     {b.product?.rating && (
                       <div className="flex items-center text-sm text-gray-600">
                         <span className="text-yellow-400">★</span>
-                        <span className="ml-1">{b.product.rating}</span>
+                        <span className="ml-1">{typeof b.product.rating === 'object' ? b.product.rating?.average || 0 : b.product.rating || 0}</span>
                       </div>
                     )}
                   </div>

@@ -214,7 +214,7 @@ const Home = () => {
                             <StarIconSolid
                               key={i}
                               className={`h-4 w-4 ${
-                                i < Math.floor(destination.rating)
+                                i < Math.floor(typeof destination.rating === 'object' ? destination.rating?.average || 0 : destination.rating || 0)
                                   ? 'text-yellow-400'
                                   : 'text-gray-300'
                               }`}
@@ -222,7 +222,13 @@ const Home = () => {
                           ))}
                         </div>
                         <span className="ml-2 text-sm text-gray-600">
-                          {destination.rating} ({destination.reviews})
+                          {typeof destination.rating === 'object' 
+                            ? (destination.rating?.average || 0).toFixed(1) 
+                            : (destination.rating || 0).toFixed(1)
+                          } ({typeof destination.rating === 'object' 
+                            ? destination.rating?.count || 0 
+                            : destination.reviews || 0
+                          })
                         </span>
                       </div>
                     </div>
