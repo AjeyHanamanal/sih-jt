@@ -7,6 +7,132 @@ const { protect, authorize, checkOwnership } = require('../middleware/auth');
 
 const router = express.Router();
 
+// @route   POST /api/bookings/create-from-product
+// @desc    Create booking from product purchase
+// @access  Private
+router.post('/create-from-product', [
+  protect,
+  body('productId').isMongoId().withMessage('Valid product ID is required'),
+  body('quantity').isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
+  body('startDate').isISO8601().withMessage('Valid start date is required'),
+  body('endDate').optional().isISO8601().withMessage('Valid end date is required'),
+  body('amount').isFloat({ min: 0 }).withMessage('Amount must be non-negative')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { productId, quantity, startDate, endDate, amount } = req.body;
+
+    console.log('Creating booking for product:', productId);
+    console.log('User ID:', req.user._id);
+
+    // Get product details
+    const product = await Product.findById(productId).populate('seller', 'name email');
+    console.log('Product found:', product ? 'Yes' : 'No');
+    if (product) {
+      console.log('Product seller:', product.seller);
+      console.log('Product sellerId:', product.sellerId);
+    }
+    if (!product) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Product not found'
+      });
+    }
+
+    // Handle seller assignment (for demo products, seller might be null but sellerId exists)
+    let sellerObjectId = null;
+    let sellerIdString = null;
+    
+    if (product.seller && product.seller._id) {
+      // Real seller with ObjectId
+      sellerObjectId = product.seller._id;
+    } else if (product.sellerId) {
+      // Demo seller with string ID
+      sellerIdString = product.sellerId;
+    } else {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Product does not have a valid seller'
+      });
+    }
+
+    // Generate unique booking ID
+    const bookingId = `BK${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+
+    // Handle tourist assignment (for demo users, _id might be a string)
+    let touristObjectId = null;
+    let touristIdString = null;
+    
+    if (typeof req.user._id === 'string' && req.user._id.startsWith('demo-')) {
+      // Demo user with string ID
+      touristIdString = req.user._id;
+    } else {
+      // Real user with ObjectId
+      touristObjectId = req.user._id;
+    }
+
+    // Create booking
+    const booking = new Booking({
+      bookingId,
+      tourist: touristObjectId,
+      touristId: touristIdString,
+      seller: sellerObjectId,
+      sellerId: sellerIdString,
+      product: productId,
+      bookingType: 'product',
+      details: {
+        quantity,
+        startDate: new Date(startDate),
+        endDate: endDate ? new Date(endDate) : null,
+        duration: endDate ? Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) : 1
+      },
+      pricing: {
+        basePrice: product.price?.amount || product.price || 0,
+        totalAmount: amount || ((product.price?.amount || product.price || 0) * quantity),
+        currency: 'INR'
+      },
+      payment: {
+        status: 'pending',
+        method: 'card',
+        amount: amount || ((product.price?.amount || product.price || 0) * quantity)
+      },
+      status: 'pending'
+    });
+
+    await booking.save();
+
+    // Populate the booking with product and user details
+    await booking.populate([
+      { path: 'product', select: 'name category description images' },
+      { path: 'tourist', select: 'name email' },
+      { path: 'seller', select: 'name email' }
+    ]);
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Booking created successfully',
+      data: { booking }
+    });
+  } catch (error) {
+    console.error('Create booking error:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error while creating booking',
+      details: error.message
+    });
+  }
+});
+
 // @route   GET /api/bookings
 // @desc    Get user's bookings
 // @access  Private
@@ -34,9 +160,19 @@ router.get('/', [
     // Build filter based on user role
     let filter = {};
     if (req.user.role === 'tourist') {
-      filter.tourist = req.user._id;
+      // Handle demo users vs real users
+      if (typeof req.user._id === 'string' && req.user._id.startsWith('demo-')) {
+        filter.touristId = req.user._id;
+      } else {
+        filter.tourist = req.user._id;
+      }
     } else if (req.user.role === 'seller') {
-      filter.seller = req.user._id;
+      // Handle demo sellers vs real sellers
+      if (typeof req.user._id === 'string' && req.user._id.startsWith('demo-')) {
+        filter.sellerId = req.user._id;
+      } else {
+        filter.seller = req.user._id;
+      }
     } else if (req.user.role === 'admin') {
       // Admin can see all bookings
     }
@@ -74,9 +210,12 @@ router.get('/', [
     });
   } catch (error) {
     console.error('Get bookings error:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       status: 'error',
-      message: 'Server error while fetching bookings'
+      message: 'Server error while fetching bookings',
+      details: error.message
     });
   }
 });
@@ -298,9 +437,25 @@ router.post('/:id/cancel', [
     }
 
     // Check if user can cancel this booking
-    const canCancel = req.user.role === 'admin' || 
-                     booking.tourist.toString() === req.user._id.toString() ||
-                     booking.seller.toString() === req.user._id.toString();
+    let canCancel = false;
+    
+    if (req.user.role === 'admin') {
+      canCancel = true;
+    } else if (req.user.role === 'tourist') {
+      // Handle demo users vs real users for tourists
+      if (typeof req.user._id === 'string' && req.user._id.startsWith('demo-')) {
+        canCancel = booking.touristId === req.user._id;
+      } else {
+        canCancel = booking.tourist && booking.tourist.toString() === req.user._id.toString();
+      }
+    } else if (req.user.role === 'seller') {
+      // Handle demo users vs real users for sellers
+      if (typeof req.user._id === 'string' && req.user._id.startsWith('demo-')) {
+        canCancel = booking.sellerId === req.user._id;
+      } else {
+        canCancel = booking.seller && booking.seller.toString() === req.user._id.toString();
+      }
+    }
 
     if (!canCancel) {
       return res.status(403).json({
@@ -317,17 +472,32 @@ router.post('/:id/cancel', [
       });
     }
 
-    // Calculate refund amount
-    const refundAmount = booking.calculateRefund();
+    // Calculate refund amount (with fallback for demo products)
+    let refundAmount = 0;
+    try {
+      refundAmount = booking.calculateRefund();
+    } catch (error) {
+      console.log('Refund calculation failed, using full amount:', error.message);
+      refundAmount = booking.pricing?.totalAmount || 0;
+    }
 
     // Update booking
     booking.status = 'cancelled';
-    booking.cancellation = {
-      requestedBy: req.user._id,
+    
+    // Handle cancellation data for demo vs real users
+    const cancellationData = {
       reason: req.body.reason,
       requestedAt: new Date(),
       refundAmount
     };
+    
+    if (typeof req.user._id === 'string' && req.user._id.startsWith('demo-')) {
+      cancellationData.requestedById = req.user._id;
+    } else {
+      cancellationData.requestedBy = req.user._id;
+    }
+    
+    booking.cancellation = cancellationData;
 
     await booking.save();
 
@@ -341,9 +511,12 @@ router.post('/:id/cancel', [
     });
   } catch (error) {
     console.error('Cancel booking error:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       status: 'error',
-      message: 'Server error while cancelling booking'
+      message: 'Server error while cancelling booking',
+      details: error.message
     });
   }
 });
@@ -544,6 +717,73 @@ router.get('/analytics/seller', [
     res.status(500).json({
       status: 'error',
       message: 'Server error while fetching analytics'
+    });
+  }
+});
+
+// @route   PUT /api/bookings/:id/confirm-payment
+// @desc    Confirm payment for a booking
+// @access  Private
+router.put('/:id/confirm-payment', [
+  protect,
+  body('paymentId').optional().isString().withMessage('Payment ID must be a string'),
+  body('paymentMethod').optional().isString().withMessage('Payment method must be a string')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { id } = req.params;
+    const { paymentId, paymentMethod } = req.body;
+
+    const booking = await Booking.findById(id);
+    if (!booking) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Booking not found'
+      });
+    }
+
+    // Check if user owns this booking
+    if (booking.tourist.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Not authorized to update this booking'
+      });
+    }
+
+    // Update payment status
+    booking.payment.status = 'paid';
+    booking.payment.paymentDate = new Date();
+    if (paymentId) booking.payment.transactionId = paymentId;
+    if (paymentMethod) booking.payment.method = paymentMethod;
+    booking.status = 'confirmed';
+
+    await booking.save();
+
+    // Populate the booking with product and user details
+    await booking.populate([
+      { path: 'product', select: 'name category description images' },
+      { path: 'tourist', select: 'name email' },
+      { path: 'seller', select: 'name email' }
+    ]);
+
+    res.json({
+      status: 'success',
+      message: 'Payment confirmed successfully',
+      data: { booking }
+    });
+  } catch (error) {
+    console.error('Confirm payment error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error while confirming payment'
     });
   }
 });

@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 // Ensure env is loaded even if this router is required before index initializes it
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -50,27 +51,26 @@ async function translate(text, source, target) {
 }
 
 async function callLLM(prompt) {
-  // Prefer OpenAI if provided, otherwise Grok
-  const openaiKey = (process.env.OPENAI_API_KEY || '').trim();
-  const grokKey = (process.env.GROK_API_KEY || process.env.XAI_API_KEY || '').trim();
-  const apiKey = openaiKey || grokKey;
-  if (!apiKey) return 'AI key not configured. Please set OPENAI_API_KEY (or GROK_API_KEY) in server/.env.';
+  // Use Gemini API if available
+  const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
+  if (!geminiKey) return 'AI key not configured. Please set GEMINI_API_KEY in server/.env.';
 
-  // Prefer Grok; fallback to OpenAI if only OPENAI_API_KEY is present
-  const useGrok = !openaiKey && Boolean(grokKey);
-  const url = useGrok ? `${GROK_BASE_URL}/chat/completions` : 'https://api.openai.com/v1/chat/completions';
-  const model = useGrok ? GROK_MODEL : (process.env.OPENAI_MODEL || 'gpt-4o-mini');
-  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` };
-  const payload = {
-    model,
-    messages: [
-      { role: 'system', content: 'You are a friendly Jharkhand Tourism assistant. Answer concisely with accurate travel info (destinations, culture, routes, tips). If unsure, refer users to https://jharkhandtourism.gov.in.' },
-      { role: 'user', content: prompt }
-    ],
-    temperature: 0.7
-  };
-  const { data } = await axios.post(url, payload, { headers, timeout: 30000 });
-  return data?.choices?.[0]?.message?.content?.trim() || 'Sorry, I could not generate a response.';
+  try {
+    // Initialize Gemini AI
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    // Create the full prompt with system context
+    const fullPrompt = `You are a friendly Jharkhand Tourism assistant. Answer concisely with accurate travel info (destinations, culture, routes, tips). If unsure, refer users to https://jharkhandtourism.gov.in.
+
+User Question: ${prompt}`;
+
+    const result = await model.generateContent(fullPrompt);
+    return result.response.text().trim() || 'Sorry, I could not generate a response.';
+  } catch (error) {
+    console.error('Gemini API error:', error);
+    return 'Sorry, I could not generate a response.';
+  }
 }
 
 // POST /api/chat/ml-chat { message, lang? }

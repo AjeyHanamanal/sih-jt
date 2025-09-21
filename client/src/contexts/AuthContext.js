@@ -86,6 +86,23 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
+      // Handle demo tokens
+      if (token.startsWith('demo_token_')) {
+        const demoUsers = {
+          'demo-tourist': { id: 'demo-tourist', name: 'Tourist Demo', role: 'tourist', email: 'tourist@demo.com', isVerified: true },
+          'demo-seller': { id: 'demo-seller', name: 'Seller Demo', role: 'seller', email: 'seller@demo.com', isVerified: true },
+          'demo-admin': { id: 'demo-admin', name: 'Admin Demo', role: 'admin', email: 'admin@demo.com', isVerified: true }
+        };
+        
+        const userId = token.split('_')[2];
+        const user = demoUsers[userId];
+        
+        if (user) {
+          dispatch({ type: 'SET_USER', payload: user });
+          return;
+        }
+      }
+
       const response = await api.get('/auth/me');
       dispatch({ type: 'SET_USER', payload: response.data.data.user });
     } catch (error) {
@@ -98,17 +115,59 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
+      dispatch({ type: 'SET_ERROR', payload: null });
       
       const response = await api.post('/auth/login', { email, password });
-      const { user, token } = response.data.data;
       
-      localStorage.setItem('token', token);
-      dispatch({ type: 'SET_USER', payload: user });
-      
-      toast.success('Login successful!');
-      return { success: true, user };
+      if (response.data.status === 'success') {
+        const { user, token } = response.data.data;
+        
+        localStorage.setItem('token', token);
+        dispatch({ type: 'SET_USER', payload: user });
+        
+        toast.success('Login successful!');
+        return { success: true, user };
+      } else {
+        const message = response.data.message || 'Login failed';
+        dispatch({ type: 'SET_ERROR', payload: message });
+        toast.error(message);
+        return { success: false, error: message };
+      }
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed';
+      console.error('Login error:', error);
+      
+      // Fallback to demo mode for demo accounts
+      if (email.includes('@demo.com') && password === 'password123') {
+        const demoUsers = {
+          'tourist@demo.com': { id: 'demo-tourist', name: 'Tourist Demo', role: 'tourist', email: 'tourist@demo.com', isVerified: true },
+          'seller@demo.com': { id: 'demo-seller', name: 'Seller Demo', role: 'seller', email: 'seller@demo.com', isVerified: true },
+          'admin@demo.com': { id: 'demo-admin', name: 'Admin Demo', role: 'admin', email: 'admin@demo.com', isVerified: true }
+        };
+        
+        const demoUser = demoUsers[email];
+        if (demoUser) {
+          const token = `demo_token_${demoUser.id}_${Date.now()}`;
+          localStorage.setItem('token', token);
+          dispatch({ type: 'SET_USER', payload: demoUser });
+          toast.success('Demo login successful!');
+          return { success: true, user: demoUser };
+        }
+      }
+      
+      let message = 'Login failed';
+      
+      if (error.response?.data?.message) {
+        message = error.response.data.message;
+      } else if (error.response?.status === 401) {
+        message = 'Invalid email or password';
+      } else if (error.response?.status === 403) {
+        message = 'Account is deactivated';
+      } else if (error.response?.status >= 500) {
+        message = 'Server error. Please try again later.';
+      } else if (error.code === 'NETWORK_ERROR' || !navigator.onLine) {
+        message = 'Network error. Please check your connection.';
+      }
+      
       dispatch({ type: 'SET_ERROR', payload: message });
       toast.error(message);
       return { success: false, error: message };
@@ -118,17 +177,57 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       dispatch({ type: 'SET_LOADING', payload: true });
+      dispatch({ type: 'SET_ERROR', payload: null });
       
       const response = await api.post('/auth/register', userData);
-      const { user, token } = response.data.data;
       
-      localStorage.setItem('token', token);
-      dispatch({ type: 'SET_USER', payload: user });
-      
-      toast.success('Registration successful! Please check your email for verification.');
-      return { success: true, user };
+      if (response.data.status === 'success') {
+        const { user, token } = response.data.data;
+        
+        localStorage.setItem('token', token);
+        dispatch({ type: 'SET_USER', payload: user });
+        
+        toast.success('Registration successful! Welcome to our platform.');
+        return { success: true, user };
+      } else {
+        const message = response.data.message || 'Registration failed';
+        dispatch({ type: 'SET_ERROR', payload: message });
+        toast.error(message);
+        return { success: false, error: message };
+      }
     } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed';
+      console.error('Registration error:', error);
+      
+      // Fallback to demo mode for offline registration
+      if (!navigator.onLine || error.code === 'NETWORK_ERROR' || error.response?.status >= 500) {
+        const newUser = {
+          id: `user_${Date.now()}`,
+          name: userData.name,
+          email: userData.email,
+          role: userData.role || 'tourist',
+          isVerified: true,
+          phone: userData.phone
+        };
+        
+        const token = `demo_token_${newUser.id}_${Date.now()}`;
+        localStorage.setItem('token', token);
+        dispatch({ type: 'SET_USER', payload: newUser });
+        toast.success('Registration successful! (Demo mode)');
+        return { success: true, user: newUser };
+      }
+      
+      let message = 'Registration failed';
+      
+      if (error.response?.data?.message) {
+        message = error.response.data.message;
+      } else if (error.response?.status === 400) {
+        message = 'Please check your information and try again';
+      } else if (error.response?.status === 409) {
+        message = 'An account with this email already exists';
+      } else if (error.response?.status >= 500) {
+        message = 'Server error. Please try again later.';
+      }
+      
       dispatch({ type: 'SET_ERROR', payload: message });
       toast.error(message);
       return { success: false, error: message };

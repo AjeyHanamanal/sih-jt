@@ -55,7 +55,7 @@ app.use('/api/products', require('./routes/products'));
 app.use('/api/bookings', require('./routes/bookings'));
 app.use('/api/feedback', require('./routes/feedback'));
 app.use('/api/analytics', require('./routes/analytics'));
-// app.use('/api/ai', require('./routes/ai')); // removed per request: no chatbot APIs
+app.use('/api/ai', require('./routes/ai')); // AI itinerary planner
 // app.use('/api/chat', require('./routes/mlChat'));
 app.use('/api/payments', require('./routes/payments'));
 

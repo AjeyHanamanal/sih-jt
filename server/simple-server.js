@@ -135,24 +135,65 @@ app.get('/api/auth/me', (req, res) => {
 
 // Register endpoint (demo)
 app.post('/api/auth/register', (req, res) => {
-  res.json({
-    status: 'success',
-    message: 'Registration successful (demo mode)',
-    data: {
-      user: {
-        id: 'new_user',
-        name: req.body.name,
-        email: req.body.email,
-        role: req.body.role || 'tourist',
-        isVerified: true
-      },
-      token: jwt.sign(
-        { id: 'new_user', role: req.body.role || 'tourist', email: req.body.email },
-        process.env.JWT_SECRET || 'demo_secret_key',
-        { expiresIn: '7d' }
-      )
+  try {
+    const { name, email, password, phone, role = 'tourist' } = req.body;
+    
+    // Basic validation
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Name, email, and password are required'
+      });
     }
-  });
+    
+    // Check if user already exists
+    const existingUser = users.find(u => u.email === email);
+    if (existingUser) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User already exists with this email'
+      });
+    }
+    
+    // Create new user
+    const newUser = {
+      id: `user_${Date.now()}`,
+      name,
+      email,
+      password,
+      phone: phone || '1234567890',
+      role,
+      isVerified: true
+    };
+    
+    users.push(newUser);
+    
+    const token = jwt.sign(
+      { id: newUser.id, role: newUser.role, email: newUser.email },
+      process.env.JWT_SECRET || 'demo_secret_key',
+      { expiresIn: '7d' }
+    );
+    
+    res.json({
+      status: 'success',
+      message: 'Registration successful (demo mode)',
+      data: {
+        user: {
+          id: newUser.id,
+          name: newUser.name,
+          email: newUser.email,
+          role: newUser.role,
+          isVerified: newUser.isVerified
+        },
+        token
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error during registration'
+    });
+  }
 });
 
 // Demo destinations

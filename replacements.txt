@@ -1,0 +1,3 @@
+﻿gsk_[A-Za-z0-9]+==>REDACTED_GROK_KEY
+xai-[A-Za-z0-9]+==>REDACTED_XAI_KEY
+sk-[A-Za-z0-9]+==>REDACTED_OPENAI_KEY

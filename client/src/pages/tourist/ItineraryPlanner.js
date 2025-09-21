@@ -46,15 +46,10 @@ const ItineraryPlanner = () => {
         {plan && (
           <div className="card p-6">
             <h2 className="text-xl font-semibold mb-4">Suggested Itinerary for {plan.destination || destination}</h2>
-            <div className="space-y-4">
-              {(plan.days || []).map((d) => (
-                <div key={d.day} className="border border-gray-100 rounded-lg p-4">
-                  <div className="font-semibold">Day {d.day}: {d.title || ''}</div>
-                  <ul className="list-disc pl-5 text-sm text-gray-700">
-                    {(d.activities || []).map((a,i)=> <li key={i}>{a}</li>)}
-                  </ul>
-                </div>
-              ))}
+            <div className="prose max-w-none">
+              <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-lg">
+                {plan.content || JSON.stringify(plan, null, 2)}
+              </pre>
             </div>
           </div>
         )}

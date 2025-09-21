@@ -235,11 +235,15 @@ router.post('/', [
   // No validation for FormData - handle in the route handler
 ], async (req, res) => {
   try {
-    console.log('Product creation request body:', JSON.stringify(req.body, null, 2));
+    console.log('=== PRODUCT CREATION REQUEST ===');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
     console.log('Uploaded files:', req.files ? req.files.length : 0);
+    console.log('User creating product:', req.user._id, req.user.role);
+    console.log('Request headers:', req.headers);
     
     // Simple validation for required fields
     if (!req.body.name || !req.body.description) {
+      console.log('Validation failed: Missing required fields');
       return res.status(400).json({
         status: 'error',
         message: 'Name and description are required'
@@ -295,7 +299,7 @@ router.post('/', [
     const productData = {
       name: req.body.name || 'Untitled Product',
       description: req.body.description || 'No description provided',
-      shortDescription: req.body.shortDescription || req.body.description || 'No description provided',
+      shortDescription: req.body.shortDescription || req.body.description?.substring(0, 300) || 'No description provided',
       category: req.body.category || 'other',
       price: {
         amount: parseFloat(price.amount) || 0,
@@ -339,16 +343,20 @@ router.post('/', [
         },
         terms: policies.terms ? [policies.terms] : []
       },
-      images: req.files ? req.files.map((file, index) => ({
+      images: req.files && req.files.length > 0 ? req.files.map((file, index) => ({
         url: `data:${file.mimetype};base64,${file.buffer.toString('base64')}`,
-        alt: file.originalname,
+        alt: file.originalname || `Product image ${index + 1}`,
         isPrimary: index === 0
       })) : [],
-      seller: req.user._id,
+      seller: req.user._id.startsWith('demo-') ? null : req.user._id,
+      sellerId: req.user._id,
       isApproved: true // Auto-approve for development
     };
 
+    console.log('Creating product with data:', JSON.stringify(productData, null, 2));
+    
     const product = await Product.create(productData);
+    console.log('Product created successfully:', product._id);
 
     res.status(201).json({
       status: 'success',
@@ -357,9 +365,34 @@ router.post('/', [
     });
   } catch (error) {
     console.error('Create product error:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      keyValue: error.keyValue
+    });
+    
+    // Handle specific MongoDB errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation failed',
+        errors: errors
+      });
+    }
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Product with this name already exists'
+      });
+    }
+    
     res.status(500).json({
       status: 'error',
-      message: 'Server error while creating product'
+      message: 'Server error while creating product',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -444,12 +477,17 @@ router.get('/seller/my-products', [
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const products = await Product.find({ seller: req.user._id })
+    // Handle both real users and demo users
+    const query = req.user._id.startsWith('demo-') 
+      ? { sellerId: req.user._id }
+      : { seller: req.user._id };
+    
+    const products = await Product.find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    const total = await Product.countDocuments({ seller: req.user._id });
+    const total = await Product.countDocuments(query);
 
     res.json({
       status: 'success',
@@ -657,6 +695,132 @@ router.post('/:id/approve', [
     res.status(500).json({
       status: 'error',
       message: 'Server error while updating product approval'
+    });
+  }
+});
+
+// @route   GET /api/products/admin/analytics
+// @desc    Get product analytics (admin only)
+// @access  Private (Admin)
+router.get('/admin/analytics', [protect, authorize('admin')], async (req, res) => {
+  try {
+    const today = new Date();
+    const last30Days = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    // Get product statistics
+    const totalProducts = await Product.countDocuments();
+    const activeProducts = await Product.countDocuments({ isActive: true });
+    const newProducts = await Product.countDocuments({ createdAt: { $gte: last30Days } });
+    const approvedProducts = await Product.countDocuments({ isApproved: true });
+    const pendingProducts = await Product.countDocuments({ isApproved: null });
+    const rejectedProducts = await Product.countDocuments({ isApproved: false });
+
+    res.json({
+      status: 'success',
+      data: {
+        overview: {
+          totalProducts,
+          activeProducts,
+          newProducts,
+          approvedProducts,
+          pendingProducts,
+          rejectedProducts
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get product analytics error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error while fetching product analytics'
+    });
+  }
+});
+
+// @route   GET /api/products/admin/all
+// @desc    Get all products for admin (admin only)
+// @access  Private (Admin)
+router.get('/admin/all', [protect, authorize('admin')], async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const status = req.query.status;
+    const category = req.query.category;
+    const search = req.query.search;
+
+    // Build filter
+    let filter = {};
+    if (status) {
+      if (status === 'pending') filter.isApproved = null;
+      else if (status === 'approved') filter.isApproved = true;
+      else if (status === 'rejected') filter.isApproved = false;
+    }
+    if (category) filter.category = category;
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const products = await Product.find(filter)
+      .populate('seller', 'name email businessInfo.businessName')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const total = await Product.countDocuments(filter);
+
+    res.json({
+      status: 'success',
+      data: {
+        products,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(total / limit),
+          totalItems: total,
+          itemsPerPage: limit
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get all products error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error while fetching products'
+    });
+  }
+});
+
+// @route   PUT /api/products/:id/status
+// @desc    Update product status (admin only)
+// @access  Private (Admin)
+router.put('/:id/status', [protect, authorize('admin')], async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    const product = await Product.findByIdAndUpdate(
+      req.params.id,
+      { isActive },
+      { new: true }
+    ).populate('seller', 'name email businessInfo.businessName');
+
+    if (!product) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Product not found'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      message: `Product ${isActive ? 'activated' : 'deactivated'} successfully`,
+      data: { product }
+    });
+  } catch (error) {
+    console.error('Update product status error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error while updating product status'
     });
   }
 });

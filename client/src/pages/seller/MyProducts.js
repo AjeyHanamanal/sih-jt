@@ -14,8 +14,15 @@ const MyProducts = () => {
       const res = await api.get('/products/seller/my-products', { params: { limit: 50 } });
       return res.data?.data?.products || [];
     },
-    { refetchOnWindowFocus: false }
+    { 
+      refetchOnWindowFocus: false,
+      retry: 1,
+      retryDelay: 1000
+    }
   );
+
+  // Ensure data is always an array
+  const products = data || [];
 
   const del = async (id) => {
     if (!window.confirm('Delete this product?')) return;
@@ -80,11 +87,11 @@ const MyProducts = () => {
 
         {isLoading ? (
           <div className="flex justify-center py-20"><LoadingSpinner size="lg" /></div>
-        ) : data.length === 0 ? (
+        ) : products.length === 0 ? (
           <div className="bg-white rounded-lg shadow-soft p-8 text-center text-gray-600">No products yet.</div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {data.map(p => (
+            {products.map(p => (
               <div key={p._id} className="card-hover">
                 <img src={p.primaryImage || p.images?.[0]?.url} alt={p.name} className="w-full h-48 object-cover" />
                 <div className="p-6">

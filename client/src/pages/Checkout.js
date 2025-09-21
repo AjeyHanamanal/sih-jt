@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const loadScript = (src) => new Promise((resolve) => {
   const script = document.createElement('script');
@@ -17,9 +18,12 @@ const useQueryParams = () => {
 const Checkout = () => {
   const navigate = useNavigate();
   const qp = useQueryParams();
+  const { api } = useAuth();
   const [paying, setPaying] = useState(false);
+  const [bookingId, setBookingId] = useState(null);
 
   const destinationId = qp.get('destinationId') || '';
+  const productId = qp.get('productId') || '';
   const name = qp.get('name') || 'Ticket';
   const amount = Number(qp.get('amount') || 50); // INR
   const qty = Number(qp.get('qty') || 1);
@@ -30,10 +34,42 @@ const Checkout = () => {
   const startPayment = async () => {
     setPaying(true);
     try {
+      // Create booking first if it's a product purchase
+      let currentBookingId = bookingId;
+      if (productId && !currentBookingId) {
+        try {
+          const bookingData = {
+            productId,
+            quantity: qty,
+            startDate: new Date().toISOString(),
+            amount: total
+          };
+          
+          const response = await api.post('/bookings/create-from-product', bookingData);
+          currentBookingId = response.data.data.booking._id;
+          setBookingId(currentBookingId);
+        } catch (error) {
+          console.error('Failed to create booking:', error);
+          alert('Failed to create booking. Please try again.');
+          setPaying(false);
+          return;
+        }
+      }
+
       if (!keyId) {
-        // Fallback demo: simulate success and issue a mock ticket
-        setTimeout(() => {
-          navigate(`/ticket?status=success&destinationId=${encodeURIComponent(destinationId)}&amount=${total}`);
+        // Fallback demo: simulate success and confirm payment
+        setTimeout(async () => {
+          if (currentBookingId) {
+            try {
+              await api.put(`/bookings/${currentBookingId}/confirm-payment`, {
+                paymentId: 'demo-payment-' + Date.now(),
+                paymentMethod: 'demo'
+              });
+            } catch (error) {
+              console.error('Failed to confirm payment:', error);
+            }
+          }
+          navigate(`/ticket?status=success&destinationId=${encodeURIComponent(destinationId)}&amount=${total}&bookingId=${currentBookingId || ''}`);
         }, 800);
         return;
       }
@@ -51,8 +87,19 @@ const Checkout = () => {
         currency: 'INR',
         name: 'Jharkhand Tourism',
         description: `${name} Ticket`,
-        handler: function (response) {
-          navigate(`/ticket?status=success&destinationId=${encodeURIComponent(destinationId)}&amount=${total}&payment_id=${response.razorpay_payment_id || ''}`);
+        handler: async function (response) {
+          // Confirm payment for the booking
+          if (currentBookingId) {
+            try {
+              await api.put(`/bookings/${currentBookingId}/confirm-payment`, {
+                paymentId: response.razorpay_payment_id,
+                paymentMethod: 'razorpay'
+              });
+            } catch (error) {
+              console.error('Failed to confirm payment:', error);
+            }
+          }
+          navigate(`/ticket?status=success&destinationId=${encodeURIComponent(destinationId)}&amount=${total}&payment_id=${response.razorpay_payment_id || ''}&bookingId=${currentBookingId || ''}`);
         },
         modal: {
           ondismiss: () => setPaying(false)

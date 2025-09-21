@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const axios = require('axios');
 const { protect } = require('../middleware/auth');
 const path = require('path');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 // Ensure env is loaded even if this router is required before index initializes it
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -13,19 +14,12 @@ const router = express.Router();
 // Development-only status endpoint to verify key presence (no secrets leaked)
 if (process.env.NODE_ENV !== 'production') {
   router.get('/status', (req, res) => {
-    const grokKey = (
-      process.env.GROK_API_KEY ||
-      process.env.XAI_API_KEY ||
-      process.env.OPENAI_API_KEY ||
-      HARDCODED_GROK_CONFIG.GROK_API_KEY ||
-      ''
-    ).trim();
+    const geminiKey = process.env.GEMINI_API_KEY || '';
     res.json({
       envLoaded: true,
-      hasKey: Boolean(grokKey),
-      keyLength: grokKey.length,
-      model: process.env.GROK_MODEL || HARDCODED_GROK_CONFIG.GROK_MODEL || null,
-      baseUrl: process.env.GROK_BASE_URL || HARDCODED_GROK_CONFIG.GROK_BASE_URL || null,
+      hasKey: Boolean(geminiKey),
+      keyLength: geminiKey.length,
+      provider: 'gemini',
       cwd: process.cwd(),
       dirname: __dirname
     });
@@ -61,76 +55,147 @@ router.post('/itinerary', [
     Travel style: ${travelStyle || 'cultural'}
     Budget: ${budget ? `₹${budget}` : 'flexible'}
     
-    Include:
-    1. Daily schedule with timings
-    2. Must-visit destinations and attractions
-    3. Local food recommendations
-    4. Transportation options
-    5. Accommodation suggestions
-    6. Cultural experiences
-    7. Budget breakdown
-    8. Tips and recommendations
+    Please format the response as a human-readable travel guide with the following structure:
     
-    Format as a structured JSON response with days array.`;
+    **${duration}-Day Itinerary for ${destination}, Jharkhand**
+    
+    **Day 1: [Theme/Title]**
+    - Morning (8:00 AM): [Activity] at [Location]
+    - Afternoon (1:00 PM): [Activity] at [Location]
+    - Evening (6:00 PM): [Activity] at [Location]
+    
+    **Day 2: [Theme/Title]**
+    [Similar format for each day]
+    
+    **Local Food Recommendations:**
+    - [Food item 1]: [Description]
+    - [Food item 2]: [Description]
+    
+    **Transportation:**
+    - [Transport option 1]: [Description]
+    - [Transport option 2]: [Description]
+    
+    **Budget Breakdown:**
+    - Accommodation: ₹[amount] per night
+    - Food: ₹[amount] per day
+    - Transportation: ₹[amount] per day
+    
+    **Travel Tips:**
+    - [Tip 1]
+    - [Tip 2]
+    - [Tip 3]
+    
+    Make it engaging, informative, and easy to read. Use markdown formatting for better readability.`;
 
-    try {
-      // Call OpenAI API (you'll need to set up your API key)
-      const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: process.env.OPENAI_MODEL || DEFAULTS.OPENAI_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a travel expert specializing in Jharkhand tourism. Provide detailed, practical itineraries with local insights.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 2000,
-        temperature: 0.7
-      }, {
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
+    // Check if API key is available
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      // No API key available, use fallback
+      console.log('No API key configured, using fallback response');
+      
+      // Generate dynamic itinerary based on duration
+      let itineraryContent = `**${duration}-Day Itinerary for ${destination}, Jharkhand**\n\n`;
+      
+      // Generate day-by-day content based on actual duration
+      for (let day = 1; day <= duration; day++) {
+        let dayTitle = '';
+        let dayActivities = '';
+        
+        if (day === 1) {
+          dayTitle = '**Day 1: Arrival & Local Exploration**';
+          dayActivities = `- Morning: Arrive and check into accommodation
+- Afternoon: Visit local markets and cultural sites
+- Evening: Try local cuisine and explore the area`;
+        } else if (day === 2) {
+          dayTitle = '**Day 2: Nature & Adventure**';
+          dayActivities = `- Morning: Visit nearby waterfalls or national parks
+- Afternoon: Nature walk and photography
+- Evening: Relax and enjoy local entertainment`;
+        } else if (day === 3) {
+          dayTitle = '**Day 3: Cultural Heritage**';
+          dayActivities = `- Morning: Visit historical temples and monuments
+- Afternoon: Learn about local tribal culture
+- Evening: Attend cultural performances`;
+        } else {
+          dayTitle = `**Day ${day}: Extended Exploration**`;
+          dayActivities = `- Morning: Visit additional local attractions
+- Afternoon: Explore more cultural sites or nature spots
+- Evening: Enjoy local entertainment and dining`;
+        }
+        
+        itineraryContent += `${dayTitle}\n${dayActivities}\n\n`;
+      }
+      
+      // Add common sections
+      itineraryContent += `**Travel Tips:**
+- Carry valid ID and keep emergency contacts handy
+- Respect local customs and traditions
+- Try local Jharkhand cuisine
+- Book accommodations in advance
+- Carry cash as digital payments may not be available everywhere
+
+**Budget Estimate:**
+- Accommodation: ₹800-2000 per night
+- Food: ₹300-800 per day
+- Transportation: ₹500-1500 per day
+- Activities: ₹200-1000 per day
+
+**Must-Visit Places:**
+- Local temples and cultural sites
+- Natural attractions and waterfalls
+- Traditional markets
+- Local restaurants and food stalls
+
+**Interests Covered:** ${interests.join(', ')}
+**Travel Style:** ${travelStyle}
+**Duration:** ${duration} days`;
+
+      const fallbackItinerary = {
+        destination,
+        duration,
+        content: itineraryContent,
+        generatedAt: new Date().toISOString()
+      };
+
+      return res.json({
+        status: 'success',
+        data: {
+          itinerary: fallbackItinerary
         }
       });
+    }
 
-      const itinerary = response.data.choices[0].message.content;
+    try {
+      // Initialize Gemini AI
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      // Create the full prompt with system context
+      const fullPrompt = `You are a travel expert specializing in Jharkhand tourism. Provide detailed, practical itineraries with local insights.
+
+${prompt}`;
+
+      const result = await model.generateContent(fullPrompt);
+      const itinerary = result.response.text();
 
       res.json({
         status: 'success',
         data: {
-          itinerary: JSON.parse(itinerary),
-          generatedAt: new Date().toISOString()
+          itinerary: {
+            destination,
+            duration,
+            content: itinerary,
+            generatedAt: new Date().toISOString()
+          }
         }
       });
     } catch (aiError) {
       console.error('AI API error:', aiError);
       
-      // Fallback to a basic itinerary
-      const fallbackItinerary = {
-        destination,
-        duration,
-        days: Array.from({ length: duration }, (_, i) => ({
-          day: i + 1,
-          title: `Day ${i + 1} in ${destination}`,
-          activities: [
-            'Morning: Explore local attractions',
-            'Afternoon: Visit cultural sites',
-            'Evening: Enjoy local cuisine'
-          ],
-          recommendations: 'Check local weather and book accommodations in advance'
-        }))
-      };
-
-      res.json({
-        status: 'success',
-        data: {
-          itinerary: fallbackItinerary,
-          generatedAt: new Date().toISOString(),
-          note: 'Generated using fallback system'
-        }
+      // Return error response for API failures
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to generate itinerary with AI service'
       });
     }
   } catch (error) {
@@ -173,29 +238,34 @@ router.post('/chatbot', [
     Keep responses concise, helpful, and focused on Jharkhand tourism.
     If you don't know something specific, suggest contacting local tourism authorities.`;
 
-    try {
-      const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: process.env.OPENAI_MODEL || DEFAULTS.OPENAI_MODEL,
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: message
-          }
-        ],
-        max_tokens: 500,
-        temperature: 0.7
-      }, {
-        headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json'
+    // Check if API key is available
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      // No API key available, use fallback
+      console.log('No API key configured for chatbot, using fallback response');
+      
+      res.json({
+        status: 'success',
+        data: {
+          response: 'I\'m a tourism assistant for Jharkhand! I can help you with information about destinations, culture, food, and travel tips. However, I\'m currently in offline mode. Please try asking about popular places like Ranchi, Deoghar, or Netarhat, or contact our support team for detailed assistance.',
+          timestamp: new Date().toISOString()
         }
       });
+      return;
+    }
 
-      const botResponse = response.data.choices[0].message.content;
+    try {
+      // Initialize Gemini AI
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      // Create the full prompt with system context
+      const fullPrompt = `${systemPrompt}
+
+User Question: ${message}`;
+
+      const result = await model.generateContent(fullPrompt);
+      const botResponse = result.response.text();
 
       res.json({
         status: 'success',

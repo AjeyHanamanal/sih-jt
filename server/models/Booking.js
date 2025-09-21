@@ -9,12 +9,20 @@ const bookingSchema = new mongoose.Schema({
   tourist: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false
+  },
+  touristId: {
+    type: String,
+    required: false
   },
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false
+  },
+  sellerId: {
+    type: String,
+    required: false
   },
   product: {
     type: mongoose.Schema.Types.ObjectId,
@@ -169,7 +177,12 @@ const bookingSchema = new mongoose.Schema({
   cancellation: {
     requestedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+      ref: 'User',
+      required: false
+    },
+    requestedById: {
+      type: String,
+      required: false
     },
     reason: String,
     requestedAt: Date,

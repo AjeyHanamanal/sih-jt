@@ -83,26 +83,29 @@ const AddProduct = () => {
     const { name, value, type, checked } = e.target;
     
     if (name.includes('.')) {
-      const [parent, child] = name.split('.');
-      setFormData(prev => ({
-        ...prev,
-        [parent]: {
-          ...prev[parent],
-          [child]: type === 'checkbox' ? checked : value
-        }
-      }));
-    } else if (name.includes('.')) {
-      const [parent, child, grandchild] = name.split('.');
-      setFormData(prev => ({
-        ...prev,
-        [parent]: {
-          ...prev[parent],
-          [child]: {
-            ...prev[parent][child],
-            [grandchild]: value
+      const parts = name.split('.');
+      if (parts.length === 2) {
+        const [parent, child] = parts;
+        setFormData(prev => ({
+          ...prev,
+          [parent]: {
+            ...prev[parent],
+            [child]: type === 'checkbox' ? checked : value
           }
-        }
-      }));
+        }));
+      } else if (parts.length === 3) {
+        const [parent, child, grandchild] = parts;
+        setFormData(prev => ({
+          ...prev,
+          [parent]: {
+            ...prev[parent],
+            [child]: {
+              ...prev[parent][child],
+              [grandchild]: value
+            }
+          }
+        }));
+      }
     } else {
       setFormData(prev => ({
         ...prev,
@@ -178,14 +181,26 @@ const AddProduct = () => {
     setLoading(true);
 
     try {
+      // Validate required fields
+      if (!formData.name || !formData.description) {
+        alert('Please fill in all required fields (Name and Description)');
+        setLoading(false);
+        return;
+      }
+
+      // Ensure we have a category
+      if (!formData.category) {
+        formData.category = 'other';
+      }
+
       // Create FormData for file upload
       const submitData = new FormData();
       
       // Add form fields
       submitData.append('name', formData.name);
-      submitData.append('shortDescription', formData.shortDescription);
+      submitData.append('shortDescription', formData.shortDescription || formData.description.substring(0, 300));
       submitData.append('description', formData.description);
-      submitData.append('category', formData.category);
+      submitData.append('category', formData.category || 'other');
       submitData.append('price', JSON.stringify(formData.price));
       submitData.append('location', JSON.stringify(formData.location));
       submitData.append('availability', JSON.stringify(formData.availability));
@@ -199,18 +214,49 @@ const AddProduct = () => {
         submitData.append('images', image.file);
       });
 
+      console.log('Submitting product data:', {
+        name: formData.name,
+        description: formData.description,
+        shortDescription: formData.shortDescription,
+        category: formData.category,
+        price: formData.price,
+        location: formData.location,
+        availability: formData.availability,
+        features: formData.features,
+        tags: formData.tags,
+        contactInfo: formData.contactInfo,
+        policies: formData.policies,
+        images: images.length
+      });
+
       const response = await api.post('/products', submitData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
 
+      console.log('Product creation response:', response.data);
+
       if (response.data.status === 'success') {
+        console.log('Product created successfully:', response.data);
+        alert('Product created successfully!');
         navigate('/seller/products');
+      } else {
+        console.error('Unexpected response:', response.data);
+        alert('Unexpected response from server');
       }
     } catch (error) {
       console.error('Error creating product:', error);
-      alert(error.response?.data?.message || 'Failed to create product');
+      console.error('Error response:', error.response?.data);
+      
+      let errorMessage = 'Failed to create product';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors) {
+        errorMessage = error.response.data.errors.join(', ');
+      }
+      
+      alert(errorMessage);
     } finally {
       setLoading(false);
     }

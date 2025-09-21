@@ -50,8 +50,8 @@ import Analytics from './pages/admin/Analytics';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LoadingSpinner from './components/common/LoadingSpinner';
 import ChatWidget from './components/chat/ChatWidget';
-import ReactTourismChatbot from './components/chat/ReactTourismChatbot';
-import ReactItineraryBot from './components/chat/ReactItineraryBot';
+import GeminiChatbot from './components/chat/GeminiChatbot';
+import GeminiItineraryBot from './components/chat/GeminiItineraryBot';
 import Checkout from './pages/Checkout';
 import Ticket from './pages/Ticket';
 
@@ -163,8 +163,8 @@ function App() {
       
       <Footer />
       <ChatWidget />
-      <ReactTourismChatbot botName="Baby AI" />
-      <ReactItineraryBot botName="Itinerary Planner" />
+      <GeminiChatbot botName="Baby AI" />
+      <GeminiItineraryBot botName="Itinerary Planner" />
     </div>
     
   );

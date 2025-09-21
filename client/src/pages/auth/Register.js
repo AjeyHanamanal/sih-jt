@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import toast from 'react-hot-toast';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -29,8 +30,24 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Enhanced validation
+    if (!formData.name || !formData.email || !formData.password || !formData.phone) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match');
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      toast.error('Password must be at least 6 characters long');
+      return;
+    }
+
+    if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      toast.error('Please enter a valid email address');
       return;
     }
 
@@ -46,10 +63,16 @@ const Register = () => {
       });
       
       if (result.success) {
-        navigate('/dashboard');
+        // Navigate based on user role
+        const redirectPath = result.user?.role === 'admin' ? '/admin/dashboard' :
+                           result.user?.role === 'seller' ? '/seller/dashboard' :
+                           result.user?.role === 'tourist' ? '/tourist/dashboard' :
+                           '/dashboard';
+        navigate(redirectPath, { replace: true });
       }
     } catch (error) {
       console.error('Registration error:', error);
+      toast.error('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -140,6 +163,7 @@ const Register = () => {
               >
                 <option value="tourist">Tourist</option>
                 <option value="seller">Service Provider</option>
+                <option value="admin">Admin</option>
               </select>
             </div>
 

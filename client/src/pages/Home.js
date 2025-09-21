@@ -74,7 +74,7 @@ const Home = () => {
   ];
 
   const stats = [
-    { number: '500+', label: 'Destinations' },
+    { number: '100+', label: 'Destinations' },
     { number: '50K+', label: 'Happy Tourists' },
     { number: '100+', label: 'Local Guides' },
     { number: '4.8', label: 'Average Rating' }

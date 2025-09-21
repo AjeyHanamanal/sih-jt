@@ -1,11 +1,12 @@
 import React from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from 'react-query';
 import { useAuth } from '../contexts/AuthContext';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const Products = () => {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const destinationId = params.get('destinationId');
   const { api, user } = useAuth();
 
@@ -17,28 +18,14 @@ const Products = () => {
 
   const products = data?.data?.data?.products || [];
 
-  const book = async (productId) => {
+  const book = (product) => {
     if (!user) {
       window.location.href = '/login';
       return;
     }
-    try {
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() + 2);
-      const payload = {
-        product: productId,
-        details: {
-          quantity: 1,
-          startDate: startDate.toISOString(),
-          participants: { adults: 1, children: 0 }
-        },
-        payment: { method: 'cash' }
-      };
-      await api.post('/bookings', payload);
-      window.location.href = '/tourist/bookings';
-    } catch (e) {
-      alert(e?.response?.data?.message || 'Booking failed');
-    }
+    const amount = Number(product?.price?.amount || 0);
+    const name = product?.name || 'Product';
+    navigate(`/checkout?productId=${product._id}&name=${encodeURIComponent(name)}&amount=${amount}&qty=1`);
   };
 
   return (
@@ -65,7 +52,7 @@ const Products = () => {
                   <p className="text-sm text-gray-600 mb-3">{p.shortDescription}</p>
                   <div className="flex items-center justify-between">
                     <div className="text-primary-600 font-semibold">₹{p.price?.amount} <span className="text-xs text-gray-500">{p.price?.unit?.replace('_', ' ')}</span></div>
-                    <button onClick={() => book(p._id)} className="btn-primary text-sm px-4 py-2">Book</button>
+                    <button onClick={() => book(p)} className="btn-primary text-sm px-4 py-2">Book</button>
                   </div>
                 </div>
               </div>

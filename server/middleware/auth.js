@@ -26,9 +26,24 @@ exports.protect = async (req, res, next) => {
 
     try {
       // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
 
-      // Get user from token
+      // Support demo accounts (ids that start with 'demo-')
+      if (decoded && typeof decoded.id === 'string' && decoded.id.startsWith('demo-')) {
+        const role = decoded.id.split('-')[1] || 'tourist';
+        req.user = {
+          _id: decoded.id,
+          id: decoded.id,
+          name: role.charAt(0).toUpperCase() + role.slice(1) + ' Demo',
+          email: `${role}@demo.com`,
+          role,
+          isActive: true,
+          isVerified: true,
+        };
+        return next();
+      }
+
+      // Get user from token for real accounts
       const user = await User.findById(decoded.id).select('-password');
       
       if (!user) {
@@ -129,9 +144,18 @@ exports.checkOwnership = (resourceModel, paramName = 'id') => {
         return next();
       }
 
-      // Check ownership
-      const ownerField = resource.seller ? 'seller' : 'user';
-      if (resource[ownerField].toString() !== req.user._id.toString()) {
+      // Check ownership - handle both real users and demo users
+      let isOwner = false;
+      if (req.user._id.startsWith('demo-')) {
+        // For demo users, check sellerId field
+        isOwner = resource.sellerId === req.user._id;
+      } else {
+        // For real users, check seller field
+        const ownerField = resource.seller ? 'seller' : 'user';
+        isOwner = resource[ownerField] && resource[ownerField].toString() === req.user._id.toString();
+      }
+      
+      if (!isOwner) {
         return res.status(403).json({
           status: 'error',
           message: 'Not authorized to access this resource'

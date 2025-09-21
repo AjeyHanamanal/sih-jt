@@ -4,6 +4,7 @@ const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const jwt = require('jsonwebtoken');
 
 const router = express.Router();
 
@@ -113,7 +114,7 @@ router.post('/register', [
     .isEmail().withMessage('Please provide a valid email'),
   body('password')
     .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  // Sanitize the phone (remove non-digits), then validate Indian 10-digit starting 6-9
+  // Sanitize the phone (remove non-digits), then validate phone number
   body('phone')
     .customSanitizer(v => {
       const digits = (v || '').toString().replace(/\D/g, '');
@@ -123,10 +124,11 @@ router.post('/register', [
       }
       return digits;
     })
-    .matches(/^[6-9]\d{9}$/).withMessage('Please provide a valid Indian phone number (10 digits, starts with 6-9)'),
+    .isLength({ min: 10, max: 10 }).withMessage('Phone number must be 10 digits')
+    .matches(/^[6-9]\d{9}$/).withMessage('Please provide a valid phone number (10 digits, starts with 6-9)'),
   body('role')
     .optional()
-    .isIn(['tourist', 'seller']).withMessage('Invalid role')
+    .isIn(['tourist', 'seller', 'admin']).withMessage('Invalid role')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -235,7 +237,36 @@ router.post('/login', [
     const { email, password } = req.body;
 
     // Find user and include password for comparison
-    const user = await User.findOne({ email }).select('+password');
+    let user = await User.findOne({ email }).select('+password');
+
+    // Development/demo fallback accounts (no database required)
+    if (!user && process.env.NODE_ENV !== 'production') {
+      const demoAccounts = {
+        'tourist@demo.com': { id: 'demo-tourist', name: 'Tourist Demo', role: 'tourist' },
+        'seller@demo.com': { id: 'demo-seller', name: 'Seller Demo', role: 'seller' },
+        'admin@demo.com': { id: 'demo-admin', name: 'Admin Demo', role: 'admin' }
+      };
+      const demo = demoAccounts[email];
+      if (demo && password === 'password123') {
+        const token = jwt.sign({ id: demo.id }, process.env.JWT_SECRET || 'dev_secret', { expiresIn: process.env.JWT_EXPIRE || '7d' });
+        return res.json({
+          status: 'success',
+          message: 'Login successful (demo account)',
+          data: {
+            user: {
+              id: demo.id,
+              name: demo.name,
+              email,
+              role: demo.role,
+              isVerified: true,
+              avatar: null
+            },
+            token
+          }
+        });
+      }
+    }
+
     if (!user) {
       return res.status(401).json({
         status: 'error',
@@ -296,6 +327,14 @@ router.post('/login', [
 // @access  Private
 router.get('/me', protect, async (req, res) => {
   try {
+    // If user is a demo fabricated user from middleware, it won't exist in DB
+    if (typeof req.user._id === 'string' && req.user._id.startsWith('demo-')) {
+      return res.json({
+        status: 'success',
+        data: { user: req.user }
+      });
+    }
+
     const user = await User.findById(req.user.id);
     res.json({
       status: 'success',

@@ -20,7 +20,11 @@ const productSchema = new mongoose.Schema({
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false
+  },
+  sellerId: {
+    type: String,
+    required: false
   },
   destination: {
     type: mongoose.Schema.Types.ObjectId,
